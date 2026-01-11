@@ -1,4 +1,5 @@
 # 调用图分析器
+基于 https://github.com/FSoft-AI4Code/CodeWiki 仓库 调用图生成模块提取出来作为维护，便于扩展多语言和解析器优化。
 
 调用图分析器是一个用于分析代码仓库并生成函数调用关系图的工具。它支持多种编程语言，包括 Python、Java、JavaScript 等。
 
