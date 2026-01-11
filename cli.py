@@ -226,6 +226,249 @@ def _trace_recursive(component_id, components, visited=None, current_depth=0, ma
         print(f"{indent}      ├─ {component_id} (not found in components)")
 
 
+def search_function_calls(keyword: str, input_file: str, recursive: bool = False, max_depth: int = 5):
+    """
+    Search for function call chains based on a keyword, showing paths from controllers to matching functions.
+    
+    Args:
+        keyword: The function keyword to search for
+        input_file: Path to the JSON file containing analysis results
+        recursive: Whether to recursively trace dependencies
+        max_depth: Maximum depth for recursive tracing
+    """
+    # Load the results from JSON file
+    with open(input_file, 'r', encoding='utf-8') as f:
+        results = json.load(f)
+    
+    components = results["components"]
+    
+    # Find components with matching keyword in their name
+    matching_components = []
+    for comp_id, comp_data in components.items():
+        if keyword.lower() in comp_data['name'].lower() or keyword.lower() in comp_id.lower():
+            matching_components.append(comp_id)
+    
+    if not matching_components:
+        print(f"No components found with keyword: {keyword}")
+        return
+    
+    print(f"Found {len(matching_components)} component(s) matching keyword: {keyword}")
+    
+    # Find all controllers that eventually lead to the matching components
+    for target_comp_id in matching_components:
+        print(f"\nTarget component: {target_comp_id}")
+        print(f"Finding paths from controllers to this component...")
+        
+        # Look for components that depend on the target component
+        components_calling_target = []
+        for comp_id, comp_data in components.items():
+            depends_on_list = comp_data.get("depends_on", [])
+            if target_comp_id in depends_on_list:
+                components_calling_target.append(comp_id)
+        
+        if components_calling_target:
+            print(f"Components that call {target_comp_id}:")
+            for caller_id in components_calling_target:
+                caller_data = components[caller_id]
+                print(f"  - {caller_id} (Type: {caller_data['component_type']})")
+                
+                # If caller is not a controller, recursively find controllers that lead to it
+                if 'controller' not in caller_data['component_type'].lower():
+                    print(f"    Looking for controllers leading to {caller_id}...")
+                    find_controllers_to_component(caller_id, components, visited=set(), current_depth=1, max_depth=max_depth)
+        else:
+            print(f"No components directly call {target_comp_id}. Let's look for potential paths in reverse...")
+
+
+def find_controllers_to_component(target_component_id, components, visited=None, current_depth=0, max_depth=5):
+    """
+    Helper function to find controllers that lead to a specific component by traversing backwards.
+    
+    Args:
+        target_component_id: Component ID to find paths to
+        components: Dictionary of all components
+        visited: Set of already visited components to prevent cycles
+        current_depth: Current recursion depth
+        max_depth: Maximum allowed recursion depth
+    """
+    if visited is None:
+        visited = set()
+    
+    # Stop if max depth reached
+    if current_depth >= max_depth:
+        indent = "    " * current_depth
+        print(f"{indent}    (Max depth reached)")
+        return
+    
+    # Prevent circular references
+    if target_component_id in visited:
+        indent = "    " * current_depth
+        print(f"{indent}    (Circular reference detected, stopping)")
+        return
+    
+    # Add current component to visited set
+    new_visited = visited | {target_component_id}
+    
+    if target_component_id in components:
+        target_data = components[target_component_id]
+        
+        # Find all components that call this target component
+        callers = []
+        for comp_id, comp_data in components.items():
+            depends_on_list = comp_data.get("depends_on", [])
+            if target_component_id in depends_on_list:
+                callers.append(comp_id)
+        
+        if callers:
+            indent = "    " * current_depth
+            for caller_id in callers:
+                caller_data = components[caller_id]
+                print(f"{indent}- {caller_id} (Type: {caller_data['component_type']}) -> {target_component_id}")
+                
+                # If this caller is a controller, we've found a path
+                if 'controller' in caller_data['component_type'].lower() or \
+                   ('name' in caller_data and 'controller' in caller_data['name'].lower()) or \
+                   ('id' in caller_data and 'controller' in caller_data['id'].lower()):
+                    print(f"{indent}  └── FOUND CONTROLLER PATH!")
+                else:
+                    # Continue searching for controllers that lead to this caller
+                    print(f"{indent}  └── Continuing search to find controller...")
+                    find_controllers_to_component(caller_id, components, new_visited, current_depth + 1, max_depth)
+        else:
+            indent = "    " * current_depth
+            print(f"{indent}- No direct callers found for {target_component_id}")
+    else:
+        indent = "    " * current_depth
+        print(f"{indent}- {target_component_id} (not found in components)")
+
+
+def find_call_paths_to_component(target_component_id, components, max_depth=5):
+    """
+    Find all paths from controllers to a specific target component using BFS-like approach.
+    
+    Args:
+        target_component_id: Component ID to find paths to
+        components: Dictionary of all components
+        max_depth: Maximum depth for path search
+    """
+    # First, find all controllers in the system
+    controllers = []
+    for comp_id, comp_data in components.items():
+        if ('controller' in comp_data['component_type'].lower() or 
+            'controller' in comp_data.get('name', '').lower() or 
+            'controller' in comp_id.lower()):
+            controllers.append(comp_id)
+    
+    if not controllers:
+        print("No controllers found in the system.")
+        return []
+    
+    print(f"Found {len(controllers)} controllers to search from: {controllers[:5]}{'...' if len(controllers) > 5 else ''}")
+    
+    # For each controller, find if there's a path to the target
+    all_paths = []
+    for controller_id in controllers:
+        path = find_single_path(controller_id, target_component_id, components, max_depth)
+        if path:
+            all_paths.append(path)
+    
+    return all_paths
+
+
+def find_single_path(start_component_id, target_component_id, components, max_depth=5):
+    """
+    Find a single path from start_component_id to target_component_id using DFS.
+    
+    Args:
+        start_component_id: Starting component ID
+        target_component_id: Target component ID
+        components: Dictionary of all components
+        max_depth: Maximum depth for path search
+        
+    Returns:
+        A path as a list of component IDs, or None if no path found
+    """
+    def dfs(current_id, target, visited, path, depth):
+        if depth > max_depth:
+            return None
+        if current_id == target:
+            return path + [current_id]
+        if current_id in visited:
+            return None
+        
+        visited.add(current_id)
+        path = path + [current_id]
+        
+        current_comp = components.get(current_id)
+        if current_comp:
+            depends_on = current_comp.get("depends_on", [])
+            for next_id in depends_on:
+                result = dfs(next_id, target, visited.copy(), path, depth + 1)
+                if result:
+                    return result
+        
+        return None
+    
+    return dfs(start_component_id, target_component_id, set(), [], 0)
+
+
+def search_function_calls_keyword(keyword: str, input_file: str, max_depth: int = 5):
+    """
+    Enhanced search function that finds paths from controllers to components matching the keyword.
+    
+    Args:
+        keyword: The function keyword to search for
+        input_file: Path to the JSON file containing analysis results
+        max_depth: Maximum depth for path search
+    """
+    # Load the results from JSON file
+    with open(input_file, 'r', encoding='utf-8') as f:
+        results = json.load(f)
+    
+    components = results["components"]
+    
+    # Find components with matching keyword in their name
+    matching_components = []
+    for comp_id, comp_data in components.items():
+        if keyword.lower() in comp_data['name'].lower() or keyword.lower() in comp_id.lower():
+            matching_components.append(comp_id)
+    
+    if not matching_components:
+        print(f"No components found with keyword: {keyword}")
+        return
+    
+    print(f"Found {len(matching_components)} component(s) matching keyword: {keyword}")
+    
+    # For each matching component, find paths from controllers
+    for target_comp_id in matching_components:
+        print(f"\nSearching for paths from controllers to: {target_comp_id}")
+        
+        # Find paths from controllers to this component
+        paths = find_call_paths_to_component(target_comp_id, components, max_depth)
+        
+        if paths:
+            print(f"Found {len(paths)} path(s) to {target_comp_id}:")
+            for i, path in enumerate(paths):
+                print(f"  Path {i+1}:")
+                for j, comp_id in enumerate(path):
+                    comp_data = components[comp_id]
+                    indent = "    " * (j + 1)
+                    print(f"{indent}{comp_id} (Type: {comp_data['component_type']})")
+                    if comp_data.get('api_url'):
+                        print(f"{indent}  API URL: {comp_data['api_url']}")
+                    print(f"{indent}  Source Code Preview: {comp_data['source_code'][:100]}...")
+        else:
+            print(f"  No paths found from controllers to {target_comp_id}")
+            
+            # As a fallback, show the component details
+            comp_data = components[target_comp_id]
+            print(f"  Component details:")
+            print(f"    Type: {comp_data['component_type']}")
+            print(f"    File: {comp_data['relative_path']}")
+            print(f"    API URL: {comp_data.get('api_url', 'N/A')}")
+            print(f"    Source Code:\n{comp_data['source_code']}")
+
+
 def main():
     """Main entry point for the command-line interface."""
     parser = argparse.ArgumentParser(
@@ -267,6 +510,14 @@ Examples:
     trace_api_parser.add_argument('--max-depth', type=int, default=5, 
                                   help='Maximum depth for recursive tracing (default: 5)')
     
+    # New search function command
+    search_func_parser = subparsers.add_parser('search-func', help='Search function call chains by keyword')
+    search_func_parser.add_argument('keyword', help='The function keyword to search for (e.g., processUser, authenticate)')
+    search_func_parser.add_argument('-f', '--file', required=True, 
+                                   help='Input JSON file containing analysis results (e.g., results.json)')
+    search_func_parser.add_argument('--max-depth', type=int, default=5, 
+                                   help='Maximum depth for path search (default: 5)')
+    
     args = parser.parse_args()
     
     if args.command == 'analyze':
@@ -296,6 +547,13 @@ Examples:
             trace_api_calls(args.api_url, args.file, args.recursive, args.max_depth)
         except Exception as e:
             print(f"Error during API tracing: {e}", file=sys.stderr)
+            sys.exit(1)
+    
+    elif args.command == 'search-func':
+        try:
+            search_function_calls_keyword(args.keyword, args.file, args.max_depth)
+        except Exception as e:
+            print(f"Error during function search: {e}", file=sys.stderr)
             sys.exit(1)
     
     elif args.command is None:
