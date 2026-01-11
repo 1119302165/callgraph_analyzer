@@ -23,7 +23,7 @@ def analyze_repository(repo_path: str, output_path: str = None) -> Dict[Any, Any
         Dictionary containing analysis results
     """
     # Import here to avoid issues when only using visualize
-    from dependency_graph_builder import DependencyGraphBuilder
+    from .dependency_graph_builder import DependencyGraphBuilder
     
     print(f"Analyzing repository: {repo_path}")
     
