@@ -57,14 +57,14 @@ def analyze_repository(repo_path: str, output_path: str = None) -> Dict[Any, Any
     return results
 
 
-def visualize_results(results: Dict[Any, Any], output_file: str = None, filter_single_node: bool = True):
+def visualize_results(results: Dict[Any, Any], output_file: str = None, filter_empty_nodes: bool = True):
     """
     Generate a simple visualization of the call graph.
     
     Args:
         results: Results from the analysis
         output_file: Optional file to save visualization (DOT format)
-        filter_single_node: Whether to filter out graphs with only one node
+        filter_empty_nodes: Whether to filter out graphs with only one node (effectively empty of relationships)
     """
     components = results["components"]
     relationships = []
@@ -77,9 +77,9 @@ def visualize_results(results: Dict[Any, Any], output_file: str = None, filter_s
                 "callee": dep_id
             })
     
-    # Check if we should filter single node graphs
-    if filter_single_node and len(components) <= 1:
-        print(f"Skipping visualization: only {len(components)} component(s) found (filter_single_node is enabled)")
+    # Check if we should filter single node graphs (graphs with no meaningful relationships)
+    if filter_empty_nodes and len(components) <= 1:
+        print(f"Skipping visualization: only {len(components)} component(s) found (filter_empty_nodes is enabled)")
         return None
     
     # Generate DOT format for graph visualization
@@ -133,8 +133,8 @@ Examples:
     visualize_parser.add_argument('input_file', help='Input file with analysis results (JSON format)')
     visualize_parser.add_argument('-o', '--output', help='Output file for visualization (DOT format)', 
                                   default='call_graph.dot')
-    visualize_parser.add_argument('--no-filter-single', action='store_true', 
-                                 help='Disable filtering of single-node graphs (by default, graphs with only one node are skipped)')
+    visualize_parser.add_argument('--no-filter-empty', action='store_true', 
+                                 help='Disable filtering of graphs with only one node (by default, graphs with only one node are skipped)')
     
     args = parser.parse_args()
     
@@ -152,9 +152,9 @@ Examples:
             with open(args.input_file, 'r', encoding='utf-8') as f:
                 results = json.load(f)
             
-            # Use the filter_single_node flag based on the argument
-            filter_single = not args.no_filter_single
-            visualize_results(results, args.output, filter_single)
+            # Use the filter_empty_nodes flag based on the argument
+            filter_empty = not args.no_filter_empty
+            visualize_results(results, args.output, filter_empty)
             print("Visualization completed successfully!")
         except Exception as e:
             print(f"Error during visualization: {e}", file=sys.stderr)
