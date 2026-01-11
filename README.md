@@ -16,7 +16,7 @@
 在使用之前，请确保安装了必要的依赖：
 
 ```bash
-pip install tree-sitter tree-sitter-python tree-sitter-java tree-sitter-javascript tree-sitter-typescript tree-sitter-cpp tree-sitter-c-sharp tree-sitter-php
+pip install -r requirements.txt
 ```
 
 ## 使用方法
