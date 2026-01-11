@@ -57,7 +57,7 @@ def analyze_repository(repo_path: str, output_path: str = None) -> Dict[Any, Any
     return results
 
 
-def visualize_results(results: Dict[Any, Any], output_file: str = None, filter_empty_nodes: bool = True):
+def visualize_results(results: Dict[Any, Any], output_file: str = None, filter_empty_nodes: bool = False):
     """
     Generate a simple visualization of the call graph.
     
@@ -77,21 +77,30 @@ def visualize_results(results: Dict[Any, Any], output_file: str = None, filter_e
                 "callee": dep_id
             })
     
-    # Check if we should filter single node graphs (graphs with no meaningful relationships)
-    if filter_empty_nodes and len(components) <= 1:
-        print(f"Skipping visualization: only {len(components)} component(s) found (filter_empty_nodes is enabled)")
-        return None
-    
     # Generate DOT format for graph visualization
     dot_content = "digraph CallGraph {\n"
     dot_content += "  rankdir=TB;\n"
     dot_content += "  node [shape=box];\n\n"
     
-    # Add all components as nodes
-    for comp_id in components.keys():
-        # Simplify the node label to just the function name
-        comp_name = comp_id.split('.')[-1] if '.' in comp_id else comp_id
-        dot_content += f'  "{comp_id}" [label="{comp_name}"];\n'
+    # Identify nodes that have relationships if filter is enabled
+    if filter_empty_nodes:
+        connected_nodes = set()
+        for rel in relationships:
+            connected_nodes.add(rel["caller"])
+            connected_nodes.add(rel["callee"])
+            
+        # Only include nodes that participate in relationships
+        for comp_id in components.keys():
+            if comp_id in connected_nodes:
+                # Simplify the node label to just the function name
+                comp_name = comp_id.split('.')[-1] if '.' in comp_id else comp_id
+                dot_content += f'  "{comp_id}" [label="{comp_name}"];\n'
+    else:
+        # Include all nodes when filter is disabled
+        for comp_id in components.keys():
+            # Simplify the node label to just the function name
+            comp_name = comp_id.split('.')[-1] if '.' in comp_id else comp_id
+            dot_content += f'  "{comp_id}" [label="{comp_name}"];\n'
     
     # Add relationships as edges
     for rel in relationships:
@@ -133,8 +142,8 @@ Examples:
     visualize_parser.add_argument('input_file', help='Input file with analysis results (JSON format)')
     visualize_parser.add_argument('-o', '--output', help='Output file for visualization (DOT format)', 
                                   default='call_graph.dot')
-    visualize_parser.add_argument('--no-filter-empty', action='store_true', 
-                                 help='Disable filtering of graphs with only one node (by default, graphs with only one node are skipped)')
+    visualize_parser.add_argument('--filter-empty-node', action='store_true', 
+                                 help='Enable filtering of graphs with only one node (by default, graphs with only one node are NOT filtered)')
     
     args = parser.parse_args()
     
@@ -153,7 +162,7 @@ Examples:
                 results = json.load(f)
             
             # Use the filter_empty_nodes flag based on the argument
-            filter_empty = not args.no_filter_empty
+            filter_empty = args.filter_empty_node
             visualize_results(results, args.output, filter_empty)
             print("Visualization completed successfully!")
         except Exception as e:
