@@ -9,8 +9,8 @@ import json
 from typing import Dict, List, Tuple, Any
 from pathlib import Path
 
-from .analysis_service import CallGraphAnalysisService
-from .models import Node
+from analysis_service import CallGraphAnalysisService
+from models import Node
 
 
 class DependencyGraphBuilder:

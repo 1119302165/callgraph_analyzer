@@ -11,9 +11,9 @@ import logging
 import traceback
 from pathlib import Path
 
-from .models import Node, CallRelationship
-from .utils.patterns import CODE_EXTENSIONS
-from .utils.security import safe_open_text
+from models import Node, CallRelationship
+from utils.patterns import CODE_EXTENSIONS
+from utils.security import safe_open_text
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +153,7 @@ class CallGraphAnalyzer:
             content: File content string
             base_dir: Repository base directory path
         """
-        from .analyzers.python import analyze_python_file
+        from analyzers.python import analyze_python_file
 
         try:
             functions, relationships = analyze_python_file(
@@ -178,7 +178,7 @@ class CallGraphAnalyzer:
             repo_dir: Repository base directory
         """
         try:
-            from .analyzers.javascript import analyze_javascript_file_treesitter
+            from analyzers.javascript import analyze_javascript_file_treesitter
 
             functions, relationships = analyze_javascript_file_treesitter(
                 file_path, content, repo_path=repo_dir
@@ -202,7 +202,7 @@ class CallGraphAnalyzer:
             content: File content string
         """
         try:
-            from .analyzers.typescript import analyze_typescript_file_treesitter
+            from analyzers.typescript import analyze_typescript_file_treesitter
 
             functions, relationships = analyze_typescript_file_treesitter(
                 file_path, content, repo_path=repo_dir
@@ -226,7 +226,7 @@ class CallGraphAnalyzer:
             content: File content string
             repo_dir: Repository base directory
         """
-        from .analyzers.c import analyze_c_file
+        from analyzers.c import analyze_c_file
 
         functions, relationships = analyze_c_file(file_path, content, repo_path=repo_dir)
 
@@ -244,7 +244,7 @@ class CallGraphAnalyzer:
             file_path: Relative path to the C++ file
             content: File content string
         """
-        from .analyzers.cpp import analyze_cpp_file
+        from analyzers.cpp import analyze_cpp_file
 
         functions, relationships = analyze_cpp_file(
             file_path, content, repo_path=repo_dir
@@ -265,7 +265,7 @@ class CallGraphAnalyzer:
             content: File content string
             repo_dir: Repository base directory
         """
-        from .analyzers.java import analyze_java_file
+        from analyzers.java import analyze_java_file
 
         try:
             functions, relationships = analyze_java_file(file_path, content, repo_path=repo_dir)
@@ -286,7 +286,7 @@ class CallGraphAnalyzer:
             content: File content string
             repo_dir: Repository base directory
         """
-        from .analyzers.csharp import analyze_csharp_file
+        from analyzers.csharp import analyze_csharp_file
 
         try:
             functions, relationships = analyze_csharp_file(file_path, content, repo_path=repo_dir)
@@ -308,7 +308,7 @@ class CallGraphAnalyzer:
             content: File content string
             repo_dir: Repository base directory
         """
-        from .analyzers.php import analyze_php_file
+        from analyzers.php import analyze_php_file
 
         try:
             functions, relationships = analyze_php_file(file_path, content, repo_path=repo_dir)
