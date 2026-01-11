@@ -1,0 +1,94 @@
+{
+  "components": {
+    "RAGService.chatCompletionsStream": {
+      "id": "RAGService.chatCompletionsStream",
+      "name": "chatCompletionsStream",
+      "file_path": "src/main/java/com/hbj/code2doc/service/RAGService/RAGService.java",
+      "relative_path": "src/main/java/com/hbj/code2doc/service/RAGService/RAGService.java",
+      "component_type": "method",
+      "component_id": "RAGService",
+      "node_type": "method",
+      "api_url": "/chat/completions/stream",
+      "http_method": "POST",
+      "depends_on": [
+        "RAGService.processChatRequest"
+      ],
+      "source_code": "@PostMapping(\"/completions/stream\")\npublic ResponseEntity<?> chatCompletionsStream(@RequestBody ChatRequest request) {\n    logger.info(\"Processing chat completions stream request\");\n    return ragService.processChatRequest(request);\n}",
+      "parameters": [
+        "ChatRequest request"
+      ],
+      "docstring": null,
+      "line_start": 8,
+      "line_end": 11
+    },
+    "RAGService.processChatRequest": {
+      "id": "RAGService.processChatRequest",
+      "name": "processChatRequest",
+      "file_path": "src/main/java/com/hbj/code2doc/service/RAGService/RAGService.java",
+      "relative_path": "src/main/java/com/hbj/code2doc/service/RAGService/RAGService.java",
+      "component_type": "method",
+      "component_id": "RAGService",
+      "node_type": "method",
+      "api_url": null,
+      "http_method": null,
+      "depends_on": [
+        "RAGService.handleRequest"
+      ],
+      "source_code": "public ResponseEntity<?> processChatRequest(ChatRequest request) {\n    logger.info(\"Processing chat request in RAG service\");\n    return handleRequest(request);\n}",
+      "parameters": [
+        "ChatRequest request"
+      ],
+      "docstring": null,
+      "line_start": 15,
+      "line_end": 18
+    },
+    "RAGService.handleRequest": {
+      "id": "RAGService.handleRequest",
+      "name": "handleRequest",
+      "file_path": "src/main/java/com/hbj/code2doc/service/RAGService/RAGService.java",
+      "relative_path": "src/main/java/com/hbj/code2doc/service/RAGService/RAGService.java",
+      "component_type": "method",
+      "component_id": "RAGService",
+      "node_type": "method",
+      "api_url": null,
+      "http_method": null,
+      "depends_on": [
+        "Logger.info"
+      ],
+      "source_code": "private ResponseEntity<?> handleRequest(ChatRequest request) {\n    // 处理请求的具体逻辑\n    logger.info(\"Handling request internally\");\n    return ResponseEntity.ok().build();\n}",
+      "parameters": [
+        "ChatRequest request"
+      ],
+      "docstring": null,
+      "line_start": 20,
+      "line_end": 24
+    },
+    "Logger.info": {
+      "id": "Logger.info",
+      "name": "info",
+      "file_path": "src/main/java/com/hbj/code2doc/service/RAGService/RAGService.java",
+      "relative_path": "src/main/java/com/hbj/code2doc/service/RAGService/RAGService.java",
+      "component_type": "method",
+      "component_id": "Logger",
+      "node_type": "method",
+      "api_url": null,
+      "http_method": null,
+      "depends_on": [],
+      "source_code": "logger.info(\"Handling request internally\")",
+      "parameters": [
+        "String message"
+      ],
+      "docstring": null,
+      "line_start": 22,
+      "line_end": 22
+    }
+  },
+  "leaf_nodes": [
+    "Logger.info"
+  ],
+  "summary": {
+    "total_components": 4,
+    "total_leaf_nodes": 1,
+    "repository_path": "D:\\code\\deepwiki-open-main\\code2doc"
+  }
+}

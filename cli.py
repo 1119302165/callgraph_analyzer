@@ -116,6 +116,116 @@ def visualize_results(results: Dict[Any, Any], output_file: str = None, filter_e
     return dot_content
 
 
+def trace_api_calls(api_url: str, input_file: str, recursive: bool = False, max_depth: int = 5):
+    """
+    Trace function call chains based on API URL.
+    
+    Args:
+        api_url: The API URL to search for
+        input_file: Path to the JSON file containing analysis results
+        recursive: Whether to recursively trace dependencies
+        max_depth: Maximum depth for recursive tracing
+    """
+    # Load the results from JSON file
+    with open(input_file, 'r', encoding='utf-8') as f:
+        results = json.load(f)
+    
+    components = results["components"]
+    
+    # Find components with matching API URL
+    matching_components = []
+    for comp_id, comp_data in components.items():
+        if comp_data.get("api_url") == api_url:
+            matching_components.append(comp_id)
+    
+    if not matching_components:
+        print(f"No components found with API URL: {api_url}")
+        return
+    
+    print(f"Found {len(matching_components)} component(s) with API URL: {api_url}")
+    
+    for comp_id in matching_components:
+        comp_data = components[comp_id]
+        print(f"\nComponent: {comp_id}")
+        print(f"  Name: {comp_data['name']}")
+        print(f"  Type: {comp_data['component_type']}")
+        print(f"  File: {comp_data['relative_path']}")
+        print(f"  API URL: {comp_data['api_url']}")
+        print(f"  HTTP Method: {comp_data.get('http_method', 'N/A')}")
+        print(f"  Source Code:\n{comp_data['source_code']}")
+        
+        # Show dependencies (functions called by this component)
+        depends_on = comp_data.get("depends_on", [])
+        if depends_on:
+            print(f"  Depends on ({len(depends_on)} components):")
+            for dep_id in depends_on:
+                print(f"    - {dep_id}")
+                
+                if recursive:
+                    # Recursively trace dependencies
+                    _trace_recursive(dep_id, components, visited={comp_id}, current_depth=1, max_depth=max_depth)
+        else:
+            print("  No dependencies found")
+
+
+def _trace_recursive(component_id, components, visited=None, current_depth=0, max_depth=5):
+    """
+    Helper function to recursively trace dependencies.
+    
+    Args:
+        component_id: Component ID to trace
+        components: Dictionary of all components
+        visited: Set of already visited components to prevent cycles
+        current_depth: Current recursion depth
+        max_depth: Maximum allowed recursion depth
+    """
+    if visited is None:
+        visited = set()
+    
+    # Stop if max depth reached
+    if current_depth >= max_depth:
+        indent = "    " * current_depth
+        print(f"{indent}    (Max depth reached)")
+        return
+    
+    # Prevent circular references
+    if component_id in visited:
+        indent = "    " * current_depth
+        print(f"{indent}    (Circular reference detected, stopping)")
+        return
+    
+    # Add current component to visited set
+    new_visited = visited | {component_id}
+    
+    if component_id in components:
+        dep_data = components[component_id]
+        indent = "    " * current_depth
+        print(f"{indent}      ├─ {component_id}")
+        print(f"{indent}      │  ├─ Type: {dep_data['component_type']}")
+        print(f"{indent}      │  ├─ File: {dep_data['relative_path']}")
+        print(f"{indent}      │  ├─ API URL: {dep_data.get('api_url', 'N/A')}")
+        print(f"{indent}      │  ├─ HTTP Method: {dep_data.get('http_method', 'N/A')}")
+        print(f"{indent}      │  ├─ Source Code:\n{indent}      │    {dep_data.get('source_code', 'N/A').replace(chr(10), chr(10) + indent + '      │    ')}")
+        
+        # Get further dependencies
+        further_deps = dep_data.get("depends_on", [])
+        if further_deps:
+            print(f"{indent}      │  └─ Depends on ({len(further_deps)} components):")
+            # Only show first few dependencies to avoid cluttering the output
+            deps_to_show = min(5, len(further_deps))  # Limit to first 5 dependencies
+            for idx, next_dep_id in enumerate(further_deps[:deps_to_show]):
+                print(f"{indent}      │    ├─ {next_dep_id}")
+                # Continue recursion for this dependency
+                _trace_recursive(next_dep_id, components, new_visited, current_depth + 1, max_depth)
+            if len(further_deps) > deps_to_show:
+                print(f"{indent}      │    └─ ... and {len(further_deps) - deps_to_show} more")
+        else:
+            print(f"{indent}      │  └─ No further dependencies")
+    else:
+        indent = "    " * current_depth
+        print(f"{indent}      ├─ {component_id} (not found in components)")
+
+
 def main():
     """Main entry point for the command-line interface."""
     parser = argparse.ArgumentParser(
@@ -126,6 +236,8 @@ Examples:
   %(prog)s analyze /path/to/repo                    # Analyze repository
   %(prog)s analyze /path/to/repo -o results.json   # Save results to JSON
   %(prog)s visualize results.json -o graph.dot     # Visualize results as DOT
+  %(prog)s trace-api /api/users -f results.json    # Trace API calls
+  %(prog)s trace-api /api/users -f results.json --recursive  # Trace API calls recursively
         """
     )
     
@@ -144,6 +256,16 @@ Examples:
                                   default='call_graph.dot')
     visualize_parser.add_argument('--filter-empty-node', action='store_true', 
                                  help='Enable filtering of graphs with only one node (by default, graphs with only one node are NOT filtered)')
+    
+    # Trace API command
+    trace_api_parser = subparsers.add_parser('trace-api', help='Trace function call chains by API URL')
+    trace_api_parser.add_argument('api_url', help='The API URL to search for (e.g., /api/users)')
+    trace_api_parser.add_argument('-f', '--file', required=True, 
+                                  help='Input JSON file containing analysis results (e.g., results.json)')
+    trace_api_parser.add_argument('--recursive', action='store_true', 
+                                  help='Recursively trace all dependencies (default: False)')
+    trace_api_parser.add_argument('--max-depth', type=int, default=5, 
+                                  help='Maximum depth for recursive tracing (default: 5)')
     
     args = parser.parse_args()
     
@@ -167,6 +289,13 @@ Examples:
             print("Visualization completed successfully!")
         except Exception as e:
             print(f"Error during visualization: {e}", file=sys.stderr)
+            sys.exit(1)
+    
+    elif args.command == 'trace-api':
+        try:
+            trace_api_calls(args.api_url, args.file, args.recursive, args.max_depth)
+        except Exception as e:
+            print(f"Error during API tracing: {e}", file=sys.stderr)
             sys.exit(1)
     
     elif args.command is None:
