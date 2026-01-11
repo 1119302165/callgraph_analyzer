@@ -61,14 +61,14 @@ class TreeSitterJavaAnalyzer:
 		parser = Parser(java_language)
 		
 		tree = parser.parse(bytes(self.content, "utf8"))
-		root = tree.root_node
+		self.root_node = tree.root_node  # Store root node for later use
 		lines = self.content.splitlines()
 		
 		top_level_nodes = {}
 		
-		self._extract_nodes(root, top_level_nodes, lines)
+		self._extract_nodes(self.root_node, top_level_nodes, lines)
 		
-		self._extract_relationships(root, top_level_nodes)
+		self._extract_relationships(self.root_node, top_level_nodes)
 	
 	def _extract_nodes(self, node, top_level_nodes, lines):
 		node_type = None
@@ -111,8 +111,26 @@ class TreeSitterJavaAnalyzer:
 			api_url = None
 			if node.type == "method_declaration":
 				containing_class_name = self._find_containing_class_name(node)
-				if containing_class_name and ('Controller' in containing_class_name or 'controller' in containing_class_name):
+				logger.debug(f"Processing method in class: {containing_class_name}")
+				is_controller = False
+				if containing_class_name:
+					# Check for Controller annotation in the class itself
+					class_node = self._find_class_node_by_name(containing_class_name)
+					if class_node:
+						is_controller = self._is_controller_class(class_node)
+						logger.debug(f"Class {containing_class_name} {'is' if is_controller else 'is not'} a Controller based on annotations")
+								
+					if not is_controller:
+						# Fallback: Check if class name contains 'Controller'
+						if 'Controller' in containing_class_name or 'controller' in containing_class_name:
+							is_controller = True
+							logger.debug(f"Class {containing_class_name} identified as Controller based on name")
+							
+				if is_controller:
+					logger.debug(f"Found Controller class: {containing_class_name}, extracting API URL")
 					api_url = self._extract_api_url_from_annotations(node)
+				else:
+					logger.debug(f"Class {containing_class_name} is not a Controller, skipping API URL extraction")
 			
 			component_id = self._get_component_id(node_name)
 			relative_path = self._get_relative_path()
@@ -145,24 +163,63 @@ class TreeSitterJavaAnalyzer:
 	
 	def _extract_api_url_from_annotations(self, method_node):
 		"""Extract API URL from method annotations like @RequestMapping, @GetMapping, @PostMapping, etc."""
-		# Look for annotations before the method declaration
+		logger.debug(f"Extracting API URL from method: {method_node.text.decode()[:100]}...")
+		
+		# Check modifiers of the method node for annotations (this is where annotations like @PostMapping are located)
+		for child in method_node.children:
+			if child.type == "modifiers":
+				logger.debug(f"Found modifiers: {child.text.decode()[:100]}...")
+				for modifier_child in child.children:
+					if modifier_child.type == "annotation":
+						logger.debug(f"Found annotation in modifiers: {modifier_child.text.decode()}")
+						url = self._parse_annotation_for_url(modifier_child)
+						if url:
+							logger.debug(f"Extracted URL from annotation: {url}")
+							return url
+					elif modifier_child.type == "marker_annotation":
+						# Handle marker annotations like @RequestBody
+						for marker_child in modifier_child.children:
+							if marker_child.type == "annotation":
+								logger.debug(f"Found annotation in marker annotation: {marker_child.text.decode()}")
+								url = self._parse_annotation_for_url(marker_child)
+								if url:
+									logger.debug(f"Extracted URL from annotation: {url}")
+									return url
+		
+		# Also check the parent node for annotations that might precede the method
 		parent = method_node.parent
 		if parent:
+			logger.debug(f"Parent node type: {parent.type}")
 			# Get siblings of the method node (before the method itself)
 			for i, child in enumerate(parent.children):
 				if child == method_node:
+					logger.debug(f"Found method node at index {i}")
 					# Look at preceding nodes for annotations
 					for j in range(i-1, -1, -1):
 						sibling = parent.children[j]
+						logger.debug(f"Checking sibling {j} with type: {sibling.type}")
 						if sibling.type == "annotation":
+							logger.debug(f"Found annotation: {sibling.text.decode()}")
 							url = self._parse_annotation_for_url(sibling)
 							if url:
+								logger.debug(f"Extracted URL from annotation: {url}")
 								return url
+						# If sibling is a class_body, look for annotations inside it
+						elif sibling.type == "class_body":
+							for sub_child in sibling.children:
+								if sub_child.type == "annotation":
+									logger.debug(f"Found annotation in class body: {sub_child.text.decode()}")
+									url = self._parse_annotation_for_url(sub_child)
+									if url:
+										logger.debug(f"Extracted URL from annotation: {url}")
+										return url
 					break
+		logger.debug("No URL found in annotations for method")
 		return None
 	
 	def _parse_annotation_for_url(self, annotation_node):
 		"""Parse annotation to extract URL path."""
+		logger.debug(f"Parsing annotation node: {annotation_node.text.decode()}")
 		annotation_name = None
 		argument_value = None
 		
@@ -170,37 +227,74 @@ class TreeSitterJavaAnalyzer:
 		for child in annotation_node.children:
 			if child.type == "identifier":
 				annotation_name = child.text.decode()
+				logger.debug(f"Found annotation name: {annotation_name}")
 				break
 		
-		if annotation_name and annotation_name in ["RequestMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping"]:
-			# Look for arguments in the annotation
+		is_spring_annotation = False
+		processed_annotation_name = None
+		
+		if annotation_name and annotation_name in ["RequestMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping"]:
+			logger.debug(f"Processing Spring annotation: {annotation_name}")
+			is_spring_annotation = True
+			processed_annotation_name = annotation_name
+		elif annotation_name:
+			# Check if annotation ends with the expected names (handles full package names like org.springframework.web.bind.annotation.GetMapping)
+			trimmed_annotation = annotation_name.split('.')[-1]  # Get the last part after dots
+			if trimmed_annotation in ["RequestMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping"]:
+				logger.debug(f"Processing Spring annotation: {trimmed_annotation}")
+				is_spring_annotation = True
+				processed_annotation_name = trimmed_annotation
+			else:
+				logger.debug(f"Annotation {annotation_name} is not a Spring mapping annotation")
+		
+		# Look for arguments in the annotation if it's a Spring mapping annotation
+		if is_spring_annotation:
 			for child in annotation_node.children:
 				if child.type == "annotation_argument_list":
+					logger.debug(f"Found annotation argument list with {len(child.children)} children")
 					for arg in child.children:
+						logger.debug(f"Processing argument of type: {arg.type}")
 						if arg.type == "element_value_pair":
 							# Check if this is a 'value' or 'path' argument
 							key_node = next((c for c in arg.children if c.type == "identifier"), None)
-							if key_node and key_node.text.decode() in ["value", "path"]:
-								value_node = next((c for c in arg.children if c.type in ["string_literal", "element_value_array_initializer"]), None)
-								if value_node:
-									if value_node.type == "string_literal":
-										# Remove quotes from the string literal
-										text = value_node.text.decode()
-										if text.startswith('"') and text.endswith('"'):
-											return text[1:-1]
-									elif value_node.type == "element_value_array_initializer":
-										# Handle array initializer like {"/path1", "/path2"}
-										for elem in value_node.children:
-											if elem.type == "string_literal":
-												text = elem.text.decode()
-												if text.startswith('"') and text.endswith('"'):
-													return text[1:-1]
+							if key_node:
+								key_text = key_node.text.decode()
+								logger.debug(f"Found key node: {key_text}")
+								if key_text in ["value", "path"]:
+									value_node = next((c for c in arg.children if c.type in ["string_literal", "element_value_array_initializer"]), None)
+									if value_node:
+										logger.debug(f"Found value node of type: {value_node.type}")
+										if value_node.type == "string_literal":
+											# Remove quotes from the string literal
+											text = value_node.text.decode()
+											logger.debug(f"Found string literal: {text}")
+											if text.startswith('"') and text.endswith('"'):
+												url = text[1:-1]
+												logger.debug(f"Extracted URL: {url}")
+												return url
+										elif value_node.type == "element_value_array_initializer":
+											# Handle array initializer like {"/path1", "/path2"}
+											logger.debug("Processing array initializer")
+											for elem in value_node.children:
+												if elem.type == "string_literal":
+													text = elem.text.decode()
+													logger.debug(f"Found array element: {text}")
+													if text.startswith('"') and text.endswith('"'):
+														url = text[1:-1]
+														logger.debug(f"Extracted URL from array: {url}")
+														return url
 						elif arg.type == "string_literal" and not argument_value:
 							# Direct string argument (like @GetMapping("/path"))
 							text = arg.text.decode()
+							logger.debug(f"Found direct string argument: {text}")
 							if text.startswith('"') and text.endswith('"'):
-								return text[1:-1]
+								url = text[1:-1]
+								logger.debug(f"Extracted direct URL: {url}")
+								return url
+		else:
+			logger.debug(f"Annotation {annotation_name} is not a Spring mapping annotation")
 		
+		logger.debug("No URL found in annotation")
 		return None
 
 	def _extract_relationships(self, node, top_level_nodes):
@@ -423,6 +517,47 @@ class TreeSitterJavaAnalyzer:
 					return self._get_component_id(f"{class_name}.{method_name}")
 			current = current.parent
 		return None
+	
+	def _find_class_node_by_name(self, class_name):
+		"""Find the class node by its name in the AST."""
+		def search_in_node(node):
+			if node.type == "class_declaration":
+				name_node = next((c for c in node.children if c.type == "identifier"), None)
+				if name_node and name_node.text.decode() == class_name:
+					return node
+			for child in node.children:
+				result = search_in_node(child)
+				if result:
+					return result
+			return None
+		
+		root = self._get_root_node()  # We'll need to store the root node during analysis
+		if hasattr(self, 'root_node'):
+			return search_in_node(self.root_node)
+		return None
+	
+	def _is_controller_class(self, class_node):
+		"""Check if a class node has Controller-related annotations."""
+		logger.debug(f"Checking if class has Controller annotation")
+		# Check for annotations directly on the class
+		for child in class_node.children:
+			if child.type == "annotation":
+				annotation_name = None
+				for grandchild in child.children:
+					if grandchild.type == "identifier":
+						annotation_name = grandchild.text.decode()
+						break
+				if annotation_name:
+					trimmed_annotation = annotation_name.split('.')[-1]
+					logger.debug(f"Found class annotation: {trimmed_annotation}")
+					if trimmed_annotation in ["Controller", "RestController"]:
+						logger.debug(f"Class has Controller annotation: {trimmed_annotation}")
+						return True
+		return False
+	
+	def _get_root_node(self):
+		"""Return the stored root node."""
+		return getattr(self, 'root_node', None)
 
 def analyze_java_file(file_path: str, content: str, repo_path: str = None) -> Tuple[List[Node], List[CallRelationship]]:
 	analyzer = TreeSitterJavaAnalyzer(file_path, content, repo_path)
