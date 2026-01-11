@@ -10,7 +10,7 @@ import argparse
 from pathlib import Path
 from typing import Dict, Any
 
-from dependency_graph_builder import DependencyGraphBuilder
+from .dependency_graph_builder import DependencyGraphBuilder
 
 
 def analyze_repository(repo_path: str, output_path: str = None) -> Dict[Any, Any]:

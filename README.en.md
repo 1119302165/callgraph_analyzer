@@ -16,7 +16,7 @@ Call Graph Analyzer is a tool for analyzing code repositories and generating fun
 Before using, make sure you have installed the necessary dependencies:
 
 ```bash
-pip install -r requirements.txt
+pip install tree-sitter tree-sitter-python tree-sitter-java tree-sitter-javascript tree-sitter-typescript tree-sitter-cpp tree-sitter-c-sharp tree-sitter-php
 ```
 
 ## Usage

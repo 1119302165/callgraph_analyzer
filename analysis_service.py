@@ -9,10 +9,10 @@ import traceback
 from typing import Dict, List, Optional
 from pathlib import Path
 
-from call_graph_analyzer import CallGraphAnalyzer
-from repo_analyzer import RepoAnalyzer
-from utils.security import safe_open_text
-from utils.patterns import CODE_EXTENSIONS
+from .call_graph_analyzer import CallGraphAnalyzer
+from .repo_analyzer import RepoAnalyzer
+from .utils.security import safe_open_text
+from .utils.patterns import CODE_EXTENSIONS
 
 
 logger = logging.getLogger(__name__)
