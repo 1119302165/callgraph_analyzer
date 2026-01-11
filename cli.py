@@ -10,8 +10,6 @@ import argparse
 from pathlib import Path
 from typing import Dict, Any
 
-from .dependency_graph_builder import DependencyGraphBuilder
-
 
 def analyze_repository(repo_path: str, output_path: str = None) -> Dict[Any, Any]:
     """
@@ -24,6 +22,9 @@ def analyze_repository(repo_path: str, output_path: str = None) -> Dict[Any, Any
     Returns:
         Dictionary containing analysis results
     """
+    # Import here to avoid issues when only using visualize
+    from dependency_graph_builder import DependencyGraphBuilder
+    
     print(f"Analyzing repository: {repo_path}")
     
     # Initialize the dependency graph builder
@@ -56,13 +57,14 @@ def analyze_repository(repo_path: str, output_path: str = None) -> Dict[Any, Any
     return results
 
 
-def visualize_results(results: Dict[Any, Any], output_file: str = None):
+def visualize_results(results: Dict[Any, Any], output_file: str = None, filter_single_node: bool = True):
     """
     Generate a simple visualization of the call graph.
     
     Args:
         results: Results from the analysis
         output_file: Optional file to save visualization (DOT format)
+        filter_single_node: Whether to filter out graphs with only one node
     """
     components = results["components"]
     relationships = []
@@ -74,6 +76,11 @@ def visualize_results(results: Dict[Any, Any], output_file: str = None):
                 "caller": comp_id,
                 "callee": dep_id
             })
+    
+    # Check if we should filter single node graphs
+    if filter_single_node and len(components) <= 1:
+        print(f"Skipping visualization: only {len(components)} component(s) found (filter_single_node is enabled)")
+        return None
     
     # Generate DOT format for graph visualization
     dot_content = "digraph CallGraph {\n"
@@ -126,6 +133,8 @@ Examples:
     visualize_parser.add_argument('input_file', help='Input file with analysis results (JSON format)')
     visualize_parser.add_argument('-o', '--output', help='Output file for visualization (DOT format)', 
                                   default='call_graph.dot')
+    visualize_parser.add_argument('--no-filter-single', action='store_true', 
+                                 help='Disable filtering of single-node graphs (by default, graphs with only one node are skipped)')
     
     args = parser.parse_args()
     
@@ -143,7 +152,9 @@ Examples:
             with open(args.input_file, 'r', encoding='utf-8') as f:
                 results = json.load(f)
             
-            visualize_results(results, args.output)
+            # Use the filter_single_node flag based on the argument
+            filter_single = not args.no_filter_single
+            visualize_results(results, args.output, filter_single)
             print("Visualization completed successfully!")
         except Exception as e:
             print(f"Error during visualization: {e}", file=sys.stderr)
