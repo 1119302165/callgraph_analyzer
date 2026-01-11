@@ -27,6 +27,7 @@ class Node:
     display_name: str = ""
     component_id: str = ""
     depends_on: Set[str] = field(default_factory=set)  # IDs of components this node calls
+    api_url: Optional[str] = None  # For controller methods with API mapping annotations
 
     def model_dump(self) -> Dict[str, Any]:
         """Convert the node to a dictionary representation."""
@@ -48,6 +49,7 @@ class Node:
             "display_name": self.display_name,
             "component_id": self.component_id,
             "depends_on": list(self.depends_on),  # Convert set to list for JSON serialization
+            "api_url": self.api_url,
         }
 
 

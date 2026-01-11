@@ -107,6 +107,13 @@ class TreeSitterJavaAnalyzer:
 					node_name = method_name
 		
 		if node_type and node_name:
+			# Check if this is a controller method and extract API URL
+			api_url = None
+			if node.type == "method_declaration":
+				containing_class_name = self._find_containing_class_name(node)
+				if containing_class_name and ('Controller' in containing_class_name or 'controller' in containing_class_name):
+					api_url = self._extract_api_url_from_annotations(node)
+			
 			component_id = self._get_component_id(node_name)
 			relative_path = self._get_relative_path()
 			node_obj = Node(
@@ -125,7 +132,9 @@ class TreeSitterJavaAnalyzer:
 				base_classes=None,
 				class_name=None,
 				display_name=f"{node_type} {node_name}",
-				component_id=component_id
+				component_id=component_id,
+				depends_on=None,
+				api_url=api_url
 			)
 			self.nodes.append(node_obj)
 			top_level_nodes[node_name] = node_obj
@@ -134,6 +143,66 @@ class TreeSitterJavaAnalyzer:
 		for child in node.children:
 			self._extract_nodes(child, top_level_nodes, lines)
 	
+	def _extract_api_url_from_annotations(self, method_node):
+		"""Extract API URL from method annotations like @RequestMapping, @GetMapping, @PostMapping, etc."""
+		# Look for annotations before the method declaration
+		parent = method_node.parent
+		if parent:
+			# Get siblings of the method node (before the method itself)
+			for i, child in enumerate(parent.children):
+				if child == method_node:
+					# Look at preceding nodes for annotations
+					for j in range(i-1, -1, -1):
+						sibling = parent.children[j]
+						if sibling.type == "annotation":
+							url = self._parse_annotation_for_url(sibling)
+							if url:
+								return url
+					break
+		return None
+	
+	def _parse_annotation_for_url(self, annotation_node):
+		"""Parse annotation to extract URL path."""
+		annotation_name = None
+		argument_value = None
+		
+		# Find the annotation name
+		for child in annotation_node.children:
+			if child.type == "identifier":
+				annotation_name = child.text.decode()
+				break
+		
+		if annotation_name and annotation_name in ["RequestMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping"]:
+			# Look for arguments in the annotation
+			for child in annotation_node.children:
+				if child.type == "annotation_argument_list":
+					for arg in child.children:
+						if arg.type == "element_value_pair":
+							# Check if this is a 'value' or 'path' argument
+							key_node = next((c for c in arg.children if c.type == "identifier"), None)
+							if key_node and key_node.text.decode() in ["value", "path"]:
+								value_node = next((c for c in arg.children if c.type in ["string_literal", "element_value_array_initializer"]), None)
+								if value_node:
+									if value_node.type == "string_literal":
+										# Remove quotes from the string literal
+										text = value_node.text.decode()
+										if text.startswith('"') and text.endswith('"'):
+											return text[1:-1]
+									elif value_node.type == "element_value_array_initializer":
+										# Handle array initializer like {"/path1", "/path2"}
+										for elem in value_node.children:
+											if elem.type == "string_literal":
+												text = elem.text.decode()
+												if text.startswith('"') and text.endswith('"'):
+													return text[1:-1]
+						elif arg.type == "string_literal" and not argument_value:
+							# Direct string argument (like @GetMapping("/path"))
+							text = arg.text.decode()
+							if text.startswith('"') and text.endswith('"'):
+								return text[1:-1]
+		
+		return None
+
 	def _extract_relationships(self, node, top_level_nodes):
 		# 1. Inheritance: Class extends another class
 		if node.type == "class_declaration":
