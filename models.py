@@ -2,9 +2,9 @@
 Core models for call graph analysis.
 """
 
-from typing import Dict, List, Set, Optional, Any
+from typing import List, Optional, Set, Dict, Any
 from dataclasses import dataclass, field
-
+import json
 
 @dataclass
 class Node:
@@ -28,7 +28,8 @@ class Node:
     component_id: str = ""
     depends_on: Set[str] = field(default_factory=set)  # IDs of components this node calls
     api_url: Optional[str] = None  # For controller methods with API mapping annotations
-
+    http_method: Optional[str] = None  # For controller methods, stores HTTP method (GET, POST, etc.)
+    
     def model_dump(self) -> Dict[str, Any]:
         """Convert the node to a dictionary representation."""
         return {
@@ -50,6 +51,7 @@ class Node:
             "component_id": self.component_id,
             "depends_on": list(self.depends_on),  # Convert set to list for JSON serialization
             "api_url": self.api_url,
+            "http_method": self.http_method,
         }
 
 

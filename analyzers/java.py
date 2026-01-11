@@ -109,6 +109,7 @@ class TreeSitterJavaAnalyzer:
 		if node_type and node_name:
 			# Check if this is a controller method and extract API URL
 			api_url = None
+			http_method = None
 			if node.type == "method_declaration":
 				containing_class_name = self._find_containing_class_name(node)
 				logger.debug(f"Processing method in class: {containing_class_name}")
@@ -133,7 +134,7 @@ class TreeSitterJavaAnalyzer:
 							
 				if is_controller:
 					logger.debug(f"Found Controller class: {containing_class_name}, extracting API URL")
-					api_url = self._extract_api_url_from_annotations(node)
+					api_url, http_method = self._extract_api_url_from_annotations(node)
 					# Prepend class path prefix if both exist
 					if api_url and class_path_prefix:
 						# Ensure proper URL concatenation without double slashes
@@ -167,7 +168,8 @@ class TreeSitterJavaAnalyzer:
 				display_name=f"{node_type} {node_name}",
 				component_id=component_id,
 				depends_on=set(),
-				api_url=api_url
+				api_url=api_url,
+				http_method=http_method
 			)
 			self.nodes.append(node_obj)
 			top_level_nodes[node_name] = node_obj
@@ -177,7 +179,7 @@ class TreeSitterJavaAnalyzer:
 			self._extract_nodes(child, top_level_nodes, lines)
 	
 	def _extract_api_url_from_annotations(self, method_node):
-		"""Extract API URL from method annotations like @RequestMapping, @GetMapping, @PostMapping, etc."""
+		"""Extract API URL and HTTP method from method annotations like @RequestMapping, @GetMapping, @PostMapping, etc."""
 		logger.debug(f"Extracting API URL from method: {method_node.text.decode()[:100]}...")
 		
 		# Check modifiers of the method node for annotations (this is where annotations like @PostMapping are located)
@@ -187,19 +189,18 @@ class TreeSitterJavaAnalyzer:
 				for modifier_child in child.children:
 					if modifier_child.type == "annotation":
 						logger.debug(f"Found annotation in modifiers: {modifier_child.text.decode()}")
-						url = self._parse_annotation_for_url(modifier_child)
+						url, http_method = self._parse_annotation_for_url(modifier_child)
 						if url:
-							logger.debug(f"Extracted URL from annotation: {url}")
-							return url
+							logger.debug(f"Extracted URL from annotation: {url}, HTTP method: {http_method}")
+							return url, http_method
 					elif modifier_child.type == "marker_annotation":
 						# Handle marker annotations like @RequestBody
 						for marker_child in modifier_child.children:
 							if marker_child.type == "annotation":
 								logger.debug(f"Found annotation in marker annotation: {marker_child.text.decode()}")
-								url = self._parse_annotation_for_url(marker_child)
+								url, http_method = self._parse_annotation_for_url(marker_child)
 								if url:
-									logger.debug(f"Extracted URL from annotation: {url}")
-									return url
+									logger.debug(f"Extracted URL from annotation: {url}, HTTP method: {http_method}")
 		
 		# Also check the parent node for annotations that might precede the method
 		parent = method_node.parent
@@ -215,28 +216,27 @@ class TreeSitterJavaAnalyzer:
 						logger.debug(f"Checking sibling {j} with type: {sibling.type}")
 						if sibling.type == "annotation":
 							logger.debug(f"Found annotation: {sibling.text.decode()}")
-							url = self._parse_annotation_for_url(sibling)
+							url, http_method = self._parse_annotation_for_url(sibling)
 							if url:
-								logger.debug(f"Extracted URL from annotation: {url}")
-								return url
+								logger.debug(f"Extracted URL from annotation: {url}, HTTP method: {http_method}")
+								return url, http_method
 						# If sibling is a class_body, look for annotations inside it
 						elif sibling.type == "class_body":
 							for sub_child in sibling.children:
 								if sub_child.type == "annotation":
 									logger.debug(f"Found annotation in class body: {sub_child.text.decode()}")
-									url = self._parse_annotation_for_url(sub_child)
+									url, http_method = self._parse_annotation_for_url(sub_child)
 									if url:
-										logger.debug(f"Extracted URL from annotation: {url}")
-										return url
+										logger.debug(f"Extracted URL from annotation: {url}, HTTP method: {http_method}")
+										return url, http_method
 					break
 		logger.debug("No URL found in annotations for method")
-		return None
+		return None, None
 	
 	def _parse_annotation_for_url(self, annotation_node):
-		"""Parse annotation to extract URL path."""
+		"""Parse annotation to extract URL path and HTTP method."""
 		logger.debug(f"Parsing annotation node: {annotation_node.text.decode()}")
 		annotation_name = None
-		argument_value = None
 		
 		# Find the annotation name
 		for child in annotation_node.children:
@@ -262,6 +262,29 @@ class TreeSitterJavaAnalyzer:
 			else:
 				logger.debug(f"Annotation {annotation_name} is not a Spring mapping annotation")
 		
+		# Determine HTTP method based on annotation name
+		http_method = None
+		if processed_annotation_name:
+			if processed_annotation_name == "GetMapping":
+				http_method = "GET"
+			elif processed_annotation_name == "PostMapping":
+				http_method = "POST"
+			elif processed_annotation_name == "PutMapping":
+				http_method = "PUT"
+			elif processed_annotation_name == "DeleteMapping":
+				http_method = "DELETE"
+			elif processed_annotation_name == "PatchMapping":
+				http_method = "PATCH"
+			elif processed_annotation_name == "RequestMapping":
+				# For RequestMapping, we need to check the 'method' parameter first
+				request_method = self._extract_method_from_request_mapping(annotation_node)
+				if request_method:
+					http_method = request_method
+				else:
+					# Default to GET if no method specified (though Spring actually allows multiple)
+					http_method = "GET"
+		
+		url = None
 		# Look for arguments in the annotation if it's a Spring mapping annotation
 		if is_spring_annotation:
 			for child in annotation_node.children:
@@ -270,46 +293,107 @@ class TreeSitterJavaAnalyzer:
 					for arg in child.children:
 						logger.debug(f"Processing argument of type: {arg.type}")
 						if arg.type == "element_value_pair":
-							# Check if this is a 'value' or 'path' argument
-							key_node = next((c for c in arg.children if c.type == "identifier"), None)
+							# Process the element_value_pair which contains both key and value
+							key_node = None
+							value_node = None
+							for sub_child in arg.children:
+								if sub_child.type == "identifier":
+									key_node = sub_child
+								elif sub_child.type in ["string_literal", "field_access", "identifier", "element_value_array_initializer"]:
+									value_node = sub_child
+							
 							if key_node:
 								key_text = key_node.text.decode()
 								logger.debug(f"Found key node: {key_text}")
-								if key_text in ["value", "path"]:
-									value_node = next((c for c in arg.children if c.type in ["string_literal", "element_value_array_initializer"]), None)
-									if value_node:
-										logger.debug(f"Found value node of type: {value_node.type}")
-										if value_node.type == "string_literal":
-											# Remove quotes from the string literal
-											text = value_node.text.decode()
-											logger.debug(f"Found string literal: {text}")
-											if text.startswith('"') and text.endswith('"'):
-												url = text[1:-1]
-												logger.debug(f"Extracted URL: {url}")
-												return url
-										elif value_node.type == "element_value_array_initializer":
-											# Handle array initializer like {"/path1", "/path2"}
-											logger.debug("Processing array initializer")
-											for elem in value_node.children:
-												if elem.type == "string_literal":
-													text = elem.text.decode()
-													logger.debug(f"Found array element: {text}")
-													if text.startswith('"') and text.endswith('"'):
-														url = text[1:-1]
-														logger.debug(f"Extracted URL from array: {url}")
-														return url
-						elif arg.type == "string_literal" and not argument_value:
-							# Direct string argument (like @GetMapping("/path"))
+								if key_text in ["value", "path"] and value_node and value_node.type == "string_literal":
+									# Remove quotes from the string literal
+									text = value_node.text.decode()
+									logger.debug(f"Found string literal: {text}")
+									if text.startswith('"') and text.endswith('"'):
+										url = text[1:-1]
+										logger.debug(f"Extracted URL: {url}")
+								# Handle method parameter in RequestMapping
+								elif key_text == "method" and value_node:
+									# This handles cases like method = RequestMethod.POST
+									if value_node.type == "field_access":
+										# For field_access like RequestMethod.POST, get the full text
+										method_text = value_node.text.decode()
+										logger.debug(f"Found method parameter with field access: {method_text}")
+										if "POST" in method_text:
+											http_method = "POST"
+										elif "GET" in method_text:
+											http_method = "GET"
+										elif "PUT" in method_text:
+											http_method = "PUT"
+										elif "DELETE" in method_text:
+											http_method = "DELETE"
+										elif "PATCH" in method_text:
+											http_method = "PATCH"
+									elif value_node.type == "identifier":
+										# For simple identifier
+										method_text = value_node.text.decode()
+										logger.debug(f"Found method parameter: {method_text}")
+										if "POST" in method_text:
+											http_method = "POST"
+										elif "GET" in method_text:
+											http_method = "GET"
+										elif "PUT" in method_text:
+											http_method = "PUT"
+										elif "DELETE" in method_text:
+											http_method = "DELETE"
+										elif "PATCH" in method_text:
+											http_method = "PATCH"
+						elif arg.type == "string_literal" and url is None:
+							# Direct string argument (like @GetMapping("/path")) - only set URL if not already found
 							text = arg.text.decode()
 							logger.debug(f"Found direct string argument: {text}")
 							if text.startswith('"') and text.endswith('"'):
 								url = text[1:-1]
 								logger.debug(f"Extracted direct URL: {url}")
-								return url
 		else:
 			logger.debug(f"Annotation {annotation_name} is not a Spring mapping annotation")
 		
-		logger.debug("No URL found in annotation")
+		logger.debug(f"Final result - URL: {url}, HTTP method: {http_method}")
+		return url, http_method
+
+	def _extract_method_from_request_mapping(self, annotation_node):
+		"""Extract HTTP method from RequestMapping annotation's method parameter."""
+		for child in annotation_node.children:
+			if child.type == "annotation_argument_list":
+				for arg in child.children:
+					if arg.type == "element_value_pair":
+						key_node = next((c for c in arg.children if c.type == "identifier"), None)
+						if key_node and key_node.text.decode() == "method":
+							# Handle both single value and array values
+							value_node = next((c for c in arg.children if c.type in ["field_access", "identifier", "element_value_array_initializer"]), None)
+							if value_node:
+								if value_node.type == "field_access" or value_node.type == "identifier":
+									method_text = value_node.text.decode()
+									if "POST" in method_text:
+										return "POST"
+									elif "GET" in method_text:
+										return "GET"
+									elif "PUT" in method_text:
+										return "PUT"
+									elif "DELETE" in method_text:
+										return "DELETE"
+									elif "PATCH" in method_text:
+										return "PATCH"
+								elif value_node.type == "element_value_array_initializer":
+									# For arrays, just return the first method
+									first_method = next((c for c in value_node.children if c.type in ["field_access", "identifier"]), None)
+									if first_method:
+										method_text = first_method.text.decode()
+										if "POST" in method_text:
+											return "POST"
+										elif "GET" in method_text:
+											return "GET"
+										elif "PUT" in method_text:
+											return "PUT"
+										elif "DELETE" in method_text:
+											return "DELETE"
+										elif "PATCH" in method_text:
+											return "PATCH"
 		return None
 
 	def _extract_relationships(self, node, top_level_nodes):
