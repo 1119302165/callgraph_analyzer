@@ -133,7 +133,7 @@ class TreeSitterJavaAnalyzer:
 				class_name=None,
 				display_name=f"{node_type} {node_name}",
 				component_id=component_id,
-				depends_on=None,
+				depends_on=set(),
 				api_url=api_url
 			)
 			self.nodes.append(node_obj)
