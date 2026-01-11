@@ -49,6 +49,7 @@ python -m callgraph_analyzer.cli visualize <input_json> -o <output_dot>
 Parameters:
 - `<input_json>`: JSON file containing analysis results
 - `<output_dot>`: Output DOT file path
+- `--filter-empty-node`: Enable filtering of empty nodes (only show nodes with connections), disabled by default
 
 ## Output Format
 

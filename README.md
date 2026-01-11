@@ -49,6 +49,7 @@ python -m callgraph_analyzer.cli visualize <input_json> -o <output_dot>
 参数说明：
 - `<input_json>`: 包含分析结果的 JSON 文件
 - `<output_dot>`: 输出 DOT 文件路径
+- `--filter-empty-node`: 启用过滤空节点模式（只显示有连接关系的节点），默认不启用
 
 ## 输出格式
 
