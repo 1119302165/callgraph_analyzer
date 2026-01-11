@@ -113,12 +113,17 @@ class TreeSitterJavaAnalyzer:
 				containing_class_name = self._find_containing_class_name(node)
 				logger.debug(f"Processing method in class: {containing_class_name}")
 				is_controller = False
+				class_path_prefix = None
 				if containing_class_name:
 					# Check for Controller annotation in the class itself
 					class_node = self._find_class_node_by_name(containing_class_name)
 					if class_node:
 						is_controller = self._is_controller_class(class_node)
 						logger.debug(f"Class {containing_class_name} {'is' if is_controller else 'is not'} a Controller based on annotations")
+						# Extract path prefix from class annotations
+						class_path_prefix = self._extract_path_prefix_from_class_annotations(class_node)
+						if class_path_prefix:
+							logger.debug(f"Found class path prefix: {class_path_prefix}")
 								
 					if not is_controller:
 						# Fallback: Check if class name contains 'Controller'
@@ -129,6 +134,16 @@ class TreeSitterJavaAnalyzer:
 				if is_controller:
 					logger.debug(f"Found Controller class: {containing_class_name}, extracting API URL")
 					api_url = self._extract_api_url_from_annotations(node)
+					# Prepend class path prefix if both exist
+					if api_url and class_path_prefix:
+						# Ensure proper URL concatenation without double slashes
+						if class_path_prefix.endswith('/') and api_url.startswith('/'):
+							api_url = class_path_prefix + api_url[1:]
+						elif not class_path_prefix.endswith('/') and not api_url.startswith('/'):
+							api_url = class_path_prefix + '/' + api_url
+						else:
+							api_url = class_path_prefix + api_url
+						logger.debug(f"Combined API URL with class prefix: {api_url}")
 				else:
 					logger.debug(f"Class {containing_class_name} is not a Controller, skipping API URL extraction")
 			
@@ -531,30 +546,84 @@ class TreeSitterJavaAnalyzer:
 					return result
 			return None
 		
-		root = self._get_root_node()  # We'll need to store the root node during analysis
-		if hasattr(self, 'root_node'):
-			return search_in_node(self.root_node)
+		root = self._get_root_node()
+		if root:
+			return search_in_node(root)
 		return None
-	
+
 	def _is_controller_class(self, class_node):
 		"""Check if a class node has Controller-related annotations."""
 		logger.debug(f"Checking if class has Controller annotation")
-		# Check for annotations directly on the class
+		# Check for annotations in the class modifiers
 		for child in class_node.children:
-			if child.type == "annotation":
-				annotation_name = None
-				for grandchild in child.children:
-					if grandchild.type == "identifier":
-						annotation_name = grandchild.text.decode()
-						break
-				if annotation_name:
-					trimmed_annotation = annotation_name.split('.')[-1]
-					logger.debug(f"Found class annotation: {trimmed_annotation}")
-					if trimmed_annotation in ["Controller", "RestController"]:
-						logger.debug(f"Class has Controller annotation: {trimmed_annotation}")
-						return True
+			if child.type == "modifiers":
+				for modifier_child in child.children:
+					if modifier_child.type == "annotation" or modifier_child.type == "marker_annotation":
+						annotation_node = modifier_child
+						if modifier_child.type == "marker_annotation":
+							# For marker annotations, look for the annotation inside
+							annotation_children = [c for c in modifier_child.children if c.type == "annotation"]
+							if annotation_children:
+								annotation_node = annotation_children[0]
+						annotation_name = None
+						for grandchild in annotation_node.children:
+							if grandchild.type == "identifier":
+								annotation_name = grandchild.text.decode()
+								break
+						if annotation_name:
+							trimmed_annotation = annotation_name.split('.')[-1]
+							logger.debug(f"Found class annotation: {trimmed_annotation}")
+							if trimmed_annotation in ["Controller", "RestController"]:
+								logger.debug(f"Class has Controller annotation: {trimmed_annotation}")
+								return True
 		return False
-	
+
+	def _extract_path_prefix_from_class_annotations(self, class_node):
+		"""Extract path prefix from class level annotations like @RequestMapping("/api")."""
+		logger.debug(f"Checking class for path prefix annotations")
+		# Check for annotations in the class modifiers
+		for child in class_node.children:
+			if child.type == "modifiers":
+				for modifier_child in child.children:
+					if modifier_child.type == "annotation":
+						annotation_name = None
+						annotation_arg_list = None
+						
+						for grandchild in modifier_child.children:
+							if grandchild.type == "identifier":
+								annotation_name = grandchild.text.decode()
+							elif grandchild.type == "annotation_argument_list":
+								annotation_arg_list = grandchild
+						
+						if annotation_name:
+							trimmed_annotation = annotation_name.split('.')[-1]
+							logger.debug(f"Found class annotation: {trimmed_annotation}")
+							# Check if it's a request mapping annotation
+							if trimmed_annotation in ["RequestMapping", "GetMapping", "PostMapping", 
+													 "PutMapping", "DeleteMapping", "PatchMapping"]:
+								if annotation_arg_list:
+									# Look for 'value' or 'path' argument
+									for arg in annotation_arg_list.children:
+										if arg.type == "element_value_pair":
+											key_node = next((c for c in arg.children if c.type == "identifier"), None)
+											if key_node and key_node.text.decode() in ["value", "path"]:
+												value_node = next((c for c in arg.children 
+															  if c.type in ["string_literal", "element_value_array_initializer"]), None)
+												if value_node and value_node.type == "string_literal":
+													text = value_node.text.decode()
+													if text.startswith('"') and text.endswith('"'):
+														path_prefix = text[1:-1]
+														logger.debug(f"Found class path prefix: {path_prefix}")
+														return path_prefix
+										elif arg.type == "string_literal":
+											# Direct string argument (like @RequestMapping("/api"))
+											text = arg.text.decode()
+											if text.startswith('"') and text.endswith('"'):
+												path_prefix = text[1:-1]
+												logger.debug(f"Found class path prefix: {path_prefix}")
+												return path_prefix
+		return None
+
 	def _get_root_node(self):
 		"""Return the stored root node."""
 		return getattr(self, 'root_node', None)

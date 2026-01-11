@@ -18,16 +18,18 @@ def debug_ast_structure():
     from tree_sitter import Parser
     parser = Parser(java_language)
     
-    # Test Java code with annotations
+    # Test Java code with class-level annotations (like in the user's example)
     java_code = """@RestController
-public class ChatController {
-    @PostMapping(value = "/chat/completions/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> chatCompletionsStream(@RequestBody ChatCompletionRequest request) {
+@RequestMapping("/api")
+public class FileUploadController {
+
+    @PostMapping("/upload")
+    public ResponseEntity<?> handleFileUpload(@RequestParam("file") MultipartFile file) {
         // method body
     }
     
-    @PostMapping("/chat/retrieve")
-    public List<RetrievedDocument> retrieveDocuments(@RequestBody ChatCompletionRequest request) {
+    @GetMapping("/search")
+    public ResponseEntity<?> search(@RequestParam("query") String query) {
         // method body
     }
 }"""
