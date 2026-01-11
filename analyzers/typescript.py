@@ -35,7 +35,12 @@ class TreeSitterTSAnalyzer:
                 self.parser = None
             else:
                 self.parser = Parser()
-                self.parser.set_language(ts_language)
+                try:
+                    # Try the newer API first (tree-sitter>=0.20.0)
+                    self.parser.set_language(ts_language)
+                except AttributeError:
+                    # Fallback to older API if needed
+                    self.parser.language = ts_language
 
         except Exception as e:
             logger.error(f"Failed to initialize TypeScript parser: {e}")

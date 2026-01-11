@@ -35,7 +35,12 @@ class TreeSitterCSharpAnalyzer:
                 self.parser = None
             else:
                 self.parser = Parser()
-                self.parser.set_language(csharp_language)
+                try:
+                    # Try the newer API first (tree-sitter>=0.20.0)
+                    self.parser.set_language(csharp_language)
+                except AttributeError:
+                    # Fallback to older API if needed
+                    self.parser.language = csharp_language
 
         except Exception as e:
             logger.error(f"Failed to initialize C# parser: {e}")
